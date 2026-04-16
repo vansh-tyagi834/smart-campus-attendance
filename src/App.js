@@ -1,24 +1,30 @@
-import logo from './logo.svg';
-import './App.css';
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { DarkModeProvider } from './context/DarkModeContext';
+import LandingPage from './components/LandingPage';
+import Login from './components/Login';
+import StudentDashboard from './components/StudentDashboard';
+import Leaderboard from './components/Leaderboard';
+import FacultyDashboard from './components/FacultyDashboard';
+import AdminDashboard from './components/AdminDashboard';
+import ParentDashboard from './components/ParentDashboard';
 
 function App() {
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
+    <DarkModeProvider>
+      <Router>
+        <Routes>
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/login/:role" element={<Login />} />
+          <Route path="/student" element={<StudentDashboard />} />
+          <Route path="/faculty" element={<FacultyDashboard />} />
+          <Route path="/admin" element={<AdminDashboard />} />
+          <Route path="/parent" element={<ParentDashboard />} />
+          <Route path="/leaderboard" element={<Leaderboard />} />
+          <Route path="*" element={<Navigate to="/" />} />
+        </Routes>
+      </Router>
+    </DarkModeProvider>
   );
 }
 

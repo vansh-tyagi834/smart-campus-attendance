@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Smart Campus ERP — Attendance</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet"/>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<style>
+/* ─── RESET & VARIABLES ─────────────────────────────────────────────────── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#07090f;
+  --bg2:#0d1117;
+  --bg3:#131921;
+  --border:#1e2a3a;
+  --border2:#243040;
+  --cyan:#00d4ff;
+  --cyan2:#00a8cc;
+  --green:#00ff88;
+  --green2:#00cc6a;
+  --red:#ff3355;
+  --red2:#cc2844;
+  --amber:#ffaa00;
+  --purple:#8855ff;
+  --text:#c8d8e8;
+  --text2:#7a9ab5;
+  --text3:#3d5a73;
+  --glow-cyan:0 0 20px rgba(0,212,255,.35);
+  --glow-green:0 0 20px rgba(0,255,136,.35);
+  --glow-red:0 0 20px rgba(255,51,85,.35);
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;overflow:hidden}
+
+/* ─── ANIMATED GRID BG ──────────────────────────────────────────────────── */
+body::before{
+  content:'';position:fixed;inset:0;
+  background-image:
+    linear-gradient(rgba(0,212,255,.03) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(0,212,255,.03) 1px,transparent 1px);
+  background-size:40px 40px;
+  animation:gridShift 20s linear infinite;
+  pointer-events:none;z-index:0;
+}
+@keyframes gridShift{from{background-position:0 0}to{background-position:40px 40px}}
+
+/* ─── LAYOUT ────────────────────────────────────────────────────────────── */
+.app{position:relative;z-index:1;height:100vh;display:grid;grid-template-rows:64px 1fr;grid-template-columns:320px 1fr 280px}
+.header{grid-column:1/-1;display:flex;align-items:center;gap:16px;padding:0 24px;background:rgba(13,17,23,.9);border-bottom:1px solid var(--border);backdrop-filter:blur(12px)}
+.sidebar{grid-row:2;padding:20px 16px;border-right:1px solid var(--border);background:rgba(13,17,23,.6);overflow-y:auto}
+.main{grid-row:2;padding:20px;overflow-y:auto;display:flex;flex-direction:column;gap:16px}
+.right{grid-row:2;padding:16px;border-left:1px solid var(--border);background:rgba(13,17,23,.6);overflow-y:auto;display:flex;flex-direction:column;gap:12px}
+
+/* ─── HEADER ────────────────────────────────────────────────────────────── */
+.logo{font-family:'Rajdhani',sans-serif;font-size:22px;font-weight:700;color:var(--cyan);letter-spacing:2px;text-transform:uppercase;white-space:nowrap}
+.logo span{color:var(--text2);font-weight:400}
+.header-pills{display:flex;gap:8px;margin-left:auto}
+.pill{display:flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;font-size:11px;font-family:'IBM Plex Mono',monospace;border:1px solid var(--border2);color:var(--text2);transition:all .3s}
+.pill.ok{border-color:var(--green);color:var(--green);background:rgba(0,255,136,.08)}
+.pill.err{border-color:var(--red);color:var(--red);background:rgba(255,51,85,.08)}
+.pill .dot{width:6px;height:6px;border-radius:50%;background:currentColor;animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.time-display{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--text2);margin-left:16px}
+
+/* ─── SECTION HEADINGS ──────────────────────────────────────────────────── */
+.section-label{font-family:'Rajdhani',sans-serif;font-size:11px;font-weight:600;letter-spacing:3px;text-transform:uppercase;color:var(--text3);margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.section-label::after{content:'';flex:1;height:1px;background:var(--border)}
+
+/* ─── MODE SELECTION ────────────────────────────────────────────────────── */
+.mode-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px}
+.mode-btn{display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 8px;border:1px solid var(--border2);border-radius:8px;background:var(--bg3);cursor:pointer;transition:all .2s;user-select:none}
+.mode-btn:hover{border-color:var(--cyan2);background:rgba(0,212,255,.05)}
+.mode-btn.selected{border-color:var(--cyan);background:rgba(0,212,255,.12);box-shadow:var(--glow-cyan)}
+.mode-btn .icon{font-size:22px}
+.mode-btn .label{font-family:'Rajdhani',sans-serif;font-size:12px;font-weight:600;letter-spacing:1px;color:var(--text2);text-align:center}
+.mode-btn.selected .label{color:var(--cyan)}
+
+/* ─── BUTTONS ───────────────────────────────────────────────────────────── */
+.btn{width:100%;padding:10px;border:none;border-radius:6px;font-family:'Rajdhani',sans-serif;font-size:15px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;cursor:pointer;transition:all .2s;margin-bottom:8px}
+.btn-primary{background:linear-gradient(135deg,var(--cyan),var(--cyan2));color:#000}
+.btn-primary:hover{box-shadow:var(--glow-cyan);transform:translateY(-1px)}
+.btn-primary:disabled{opacity:.4;cursor:not-allowed;transform:none;box-shadow:none}
+.btn-secondary{background:transparent;border:1px solid var(--border2);color:var(--text2)}
+.btn-secondary:hover{border-color:var(--amber);color:var(--amber)}
+.btn-danger{background:transparent;border:1px solid var(--border2);color:var(--text2)}
+.btn-danger:hover{border-color:var(--red);color:var(--red)}
+.btn-green{background:linear-gradient(135deg,var(--green),var(--green2));color:#000}
+.btn-green:hover{box-shadow:var(--glow-green);transform:translateY(-1px)}
+.btn-green:disabled{opacity:.4;cursor:not-allowed;transform:none;box-shadow:none}
+
+/* ─── STATUS CARD ───────────────────────────────────────────────────────── */
+.status-card{border:1px solid var(--border2);border-radius:10px;background:var(--bg3);padding:16px;transition:all .4s}
+.status-card.phase-ready{border-color:var(--green);box-shadow:var(--glow-green)}
+.status-card.phase-success{border-color:var(--green);box-shadow:var(--glow-green);animation:successPulse .6s ease}
+.status-card.phase-blocked,.status-card.phase-security_mismatch{border-color:var(--red);box-shadow:var(--glow-red)}
+.status-card.phase-scanning,.status-card.phase-face_scan,.status-card.phase-rfid_ok,.status-card.phase-fp_ok,.status-card.phase-face_ok,.status-card.phase-card_scanned{border-color:var(--cyan);box-shadow:var(--glow-cyan)}
+@keyframes successPulse{0%{transform:scale(1)}50%{transform:scale(1.01)}100%{transform:scale(1)}}
+
+.status-phase{font-family:'Rajdhani',sans-serif;font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--text3);margin-bottom:8px}
+.status-msg{font-size:14px;color:var(--text);line-height:1.5}
+
+/* ─── SESSION STUDENT DISPLAY ───────────────────────────────────────────── */
+.student-badge{display:flex;align-items:center;gap:12px;padding:12px;border-radius:8px;background:rgba(0,212,255,.06);border:1px solid rgba(0,212,255,.15);margin-top:12px;animation:slideIn .3s ease}
+@keyframes slideIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+.student-avatar{width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,var(--cyan),var(--purple));display:flex;align-items:center;justify-content:center;font-family:'Rajdhani',sans-serif;font-size:18px;font-weight:700;color:#000;flex-shrink:0}
+.student-name{font-family:'Rajdhani',sans-serif;font-size:16px;font-weight:700;color:var(--cyan)}
+.student-id{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text3)}
+
+/* ─── VERIFICATION STEPS ────────────────────────────────────────────────── */
+.steps{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.step{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg2);font-size:13px;transition:all .3s}
+.step.done{border-color:var(--green);background:rgba(0,255,136,.06);color:var(--green)}
+.step.active{border-color:var(--cyan);background:rgba(0,212,255,.06);color:var(--cyan)}
+.step.pending{color:var(--text3)}
+.step-icon{font-size:16px;flex-shrink:0}
+.step-label{font-family:'Rajdhani',sans-serif;font-weight:600;letter-spacing:.5px}
+
+/* ─── ATTENDANCE TABLE ───────────────────────────────────────────────────── */
+.attendance-table{width:100%;border-collapse:collapse;font-size:13px}
+.attendance-table th{font-family:'Rajdhani',sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text3);padding:8px 12px;text-align:left;border-bottom:1px solid var(--border)}
+.attendance-table td{padding:10px 12px;border-bottom:1px solid var(--border);color:var(--text);vertical-align:middle}
+.attendance-table tr.new-row{animation:rowIn .4s ease}
+@keyframes rowIn{from{opacity:0;background:rgba(0,255,136,.15)}to{opacity:1;background:transparent}}
+.attendance-table tr:hover td{background:rgba(255,255,255,.02)}
+.badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:10px;font-size:11px;font-family:'IBM Plex Mono',monospace}
+.badge-green{background:rgba(0,255,136,.12);color:var(--green);border:1px solid rgba(0,255,136,.2)}
+.badge-cyan{background:rgba(0,212,255,.12);color:var(--cyan);border:1px solid rgba(0,212,255,.2)}
+.badge-red{background:rgba(255,51,85,.12);color:var(--red);border:1px solid rgba(255,51,85,.2)}
+.conf-bar{width:48px;height:4px;background:var(--border);border-radius:2px;overflow:hidden;display:inline-block;vertical-align:middle;margin-left:6px}
+.conf-bar-fill{height:100%;background:linear-gradient(90deg,var(--green),var(--cyan));border-radius:2px;transition:width .5s ease}
+
+/* ─── SECURITY ALERTS ───────────────────────────────────────────────────── */
+.alert-card{border:1px solid var(--red);border-radius:8px;background:rgba(255,51,85,.06);padding:12px;animation:alertIn .3s ease}
+@keyframes alertIn{from{opacity:0;transform:translateX(10px)}to{opacity:1;transform:translateX(0)}}
+.alert-header{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-family:'Rajdhani',sans-serif;font-size:13px;font-weight:700;color:var(--red);letter-spacing:1px}
+.alert-body{font-size:12px;color:var(--text2);line-height:1.5}
+.alert-time{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text3);margin-top:4px}
+
+/* ─── BLOCKED EVENTS ───────────────────────────────────────────────────── */
+.blocked-card{border:1px solid var(--amber);border-radius:8px;background:rgba(255,170,0,.05);padding:12px;animation:alertIn .3s ease;margin-bottom:8px}
+.blocked-header{display:flex;align-items:center;gap:8px;font-family:'Rajdhani',sans-serif;font-size:13px;font-weight:700;color:var(--amber);margin-bottom:4px}
+.blocked-body{font-size:12px;color:var(--text2)}
+
+/* ─── LOG PANEL ─────────────────────────────────────────────────────────── */
+.log-panel{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px;font-family:'IBM Plex Mono',monospace;font-size:11px;height:180px;overflow-y:auto;display:flex;flex-direction:column;gap:2px}
+.log-line{display:flex;gap:8px;line-height:1.5}
+.log-line .lt{color:var(--text3);flex-shrink:0}
+.log-line.ok .lm{color:var(--green)}
+.log-line.error .lm{color:var(--red)}
+.log-line.warn .lm{color:var(--amber)}
+.log-line.info .lm{color:var(--cyan)}
+
+/* ─── STATS ROW ─────────────────────────────────────────────────────────── */
+.stats-row{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.stat-card{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:14px;text-align:center}
+.stat-num{font-family:'Rajdhani',sans-serif;font-size:32px;font-weight:700;color:var(--cyan)}
+.stat-label{font-size:11px;color:var(--text3);font-family:'Rajdhani',sans-serif;letter-spacing:1px;text-transform:uppercase;margin-top:2px}
+
+/* ─── SCROLLBAR ─────────────────────────────────────────────────────────── */
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:var(--bg2)}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+
+/* ─── SETUP OVERLAY ─────────────────────────────────────────────────────── */
+#setup-overlay{position:fixed;inset:0;z-index:100;background:rgba(7,9,15,.97);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(8px)}
+.setup-box{background:var(--bg2);border:1px solid var(--border2);border-radius:16px;padding:40px;width:420px;max-width:90vw}
+.setup-title{font-family:'Rajdhani',sans-serif;font-size:24px;font-weight:700;color:var(--cyan);letter-spacing:2px;margin-bottom:4px;text-transform:uppercase}
+.setup-sub{font-size:13px;color:var(--text2);margin-bottom:28px}
+.setup-modes{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:24px}
+.setup-mode{display:flex;flex-direction:column;align-items:center;gap:8px;padding:20px 10px;border:2px solid var(--border2);border-radius:10px;cursor:pointer;transition:all .2s;user-select:none}
+.setup-mode:hover{border-color:var(--cyan2)}
+.setup-mode.sel{border-color:var(--cyan);background:rgba(0,212,255,.1);box-shadow:var(--glow-cyan)}
+.setup-mode .si{font-size:30px}
+.setup-mode .sl{font-family:'Rajdhani',sans-serif;font-size:13px;font-weight:600;letter-spacing:1px;color:var(--text2);text-align:center}
+.setup-mode.sel .sl{color:var(--cyan)}
+.setup-hint{font-size:12px;color:var(--text3);text-align:center;margin-bottom:20px;font-family:'IBM Plex Mono',monospace}
+.setup-progress{margin-top:16px;font-size:12px;color:var(--text3);font-family:'IBM Plex Mono',monospace;text-align:center;min-height:18px}
+</style>
+</head>
+<body>
+
+<!-- ─── SETUP OVERLAY ──────────────────────────────────────────────────── -->
+<div id="setup-overlay">
+  <div class="setup-box">
+    <div class="setup-title">Smart Campus ERP</div>
+    <div class="setup-sub">Select attendance verification modes (minimum 2)</div>
+    <div class="setup-modes">
+      <div class="setup-mode" data-mode="RFID" onclick="toggleMode(this)">
+        <div class="si">📡</div><div class="sl">RFID Card</div>
+      </div>
+      <div class="setup-mode" data-mode="FINGERPRINT" onclick="toggleMode(this)">
+        <div class="si">👆</div><div class="sl">Fingerprint</div>
+      </div>
+      <div class="setup-mode" data-mode="FACE" onclick="toggleMode(this)">
+        <div class="si">🎭</div><div class="sl">Face</div>
+      </div>
+    </div>
+    <div class="setup-hint" id="setup-hint">Select at least 2 modes</div>
+    <button class="btn btn-primary" id="setup-btn" disabled onclick="initSystem()">
+      INITIALISE SYSTEM
+    </button>
+    <div class="setup-progress" id="setup-progress"></div>
+  </div>
+</div>
+
+<!-- ─── MAIN APP ───────────────────────────────────────────────────────── -->
+<div class="app">
+
+  <!-- HEADER -->
+  <header class="header">
+    <div class="logo">Smart<span>Campus</span> ERP</div>
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text3);margin-left:8px">
+      ATTENDANCE SYSTEM v6.0
+    </div>
+    <div class="header-pills" id="status-pills">
+      <div class="pill" id="pill-conn"><span class="dot"></span>Connecting</div>
+      <div class="pill" id="pill-firebase"><span class="dot"></span>Firebase</div>
+      <div class="pill" id="pill-camera"><span class="dot"></span>Camera</div>
+      <div class="pill" id="pill-modes" style="font-size:12px;padding:4px 14px;"></div>
+    </div>
+    <div class="time-display" id="clock">--:--:--</div>
+  </header>
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="section-label">Session Control</div>
+
+    <!-- Current session status -->
+    <div class="status-card" id="status-card">
+      <div class="status-phase" id="status-phase">IDLE</div>
+      <div class="status-msg" id="status-msg">System ready. Select modes to begin.</div>
+      <div id="student-badge-wrap"></div>
+      <div class="steps" id="steps-wrap"></div>
+    </div>
+
+    <div style="height:12px"></div>
+
+    <!-- Controls -->
+    <button class="btn btn-green" id="btn-scan" onclick="startScan()" disabled>
+      ▶ START SCAN
+    </button>
+    <button class="btn btn-danger" id="btn-reset" onclick="resetSession()">
+      ↺ RESET SESSION
+    </button>
+
+    <div style="height:20px"></div>
+    <div class="section-label">System Log</div>
+    <div class="log-panel" id="log-panel"></div>
+
+    <div style="height:16px"></div>
+    <div class="section-label">Registered Students</div>
+    <div id="student-list" style="display:flex;flex-direction:column;gap:6px"></div>
+  </aside>
+
+  <!-- MAIN CONTENT -->
+  <main class="main">
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-num" id="stat-present">0</div>
+        <div class="stat-label">Present Today</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num" id="stat-blocked" style="color:var(--amber)">0</div>
+        <div class="stat-label">Blocked</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num" id="stat-alerts" style="color:var(--red)">0</div>
+        <div class="stat-label">Security Alerts</div>
+      </div>
+    </div>
+
+    <div class="section-label">Live Attendance Feed</div>
+    <div style="overflow-x:auto;flex:1">
+      <table class="attendance-table">
+        <thead>
+          <tr>
+            <th>#</th><th>Time</th><th>Student</th><th>ID</th>
+            <th>Modes</th><th>Face Conf</th><th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="attendance-tbody">
+          <tr><td colspan="7" style="color:var(--text3);text-align:center;padding:30px;font-family:'IBM Plex Mono',monospace;font-size:12px">
+            No attendance records yet…
+          </td></tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+
+  <!-- RIGHT PANEL -->
+  <aside class="right">
+    <div class="section-label">Security Alerts</div>
+    <div id="alerts-wrap" style="display:flex;flex-direction:column;gap:8px">
+      <div style="color:var(--text3);font-size:12px;font-family:'IBM Plex Mono',monospace;text-align:center;padding:20px 0">
+        No alerts
+      </div>
+    </div>
+
+    <div style="height:16px"></div>
+    <div class="section-label">Blocked Events</div>
+    <div id="blocked-wrap" style="display:flex;flex-direction:column;gap:8px">
+      <div style="color:var(--text3);font-size:12px;font-family:'IBM Plex Mono',monospace;text-align:center;padding:10px 0">
+        None
+      </div>
+    </div>
+  </aside>
+
+</div>
+
+<script>
+// ─── SOCKET.IO ────────────────────────────────────────────────────────────
+const socket = io();
+let selectedModes = [];
+let presentCount  = 0;
+let blockedCount  = 0;
+let alertCount    = 0;
+let rowCount      = 0;
+let systemModes   = [];
+
+// ─── CLOCK ───────────────────────────────────────────────────────────────
+function updateClock(){
+  const n=new Date();
+  document.getElementById('clock').textContent=
+    n.toLocaleTimeString('en-IN',{hour12:false});
+}
+updateClock();
+setInterval(updateClock,1000);
+
+// ─── SETUP OVERLAY ───────────────────────────────────────────────────────
+function toggleMode(el){
+  el.classList.toggle('sel');
+  selectedModes = [...document.querySelectorAll('.setup-mode.sel')]
+    .map(e=>e.dataset.mode);
+  const btn  = document.getElementById('setup-btn');
+  const hint = document.getElementById('setup-hint');
+  if(selectedModes.length<2){
+    btn.disabled=true;
+    hint.textContent='Select at least 2 modes';
+  } else {
+    btn.disabled=false;
+    hint.textContent='Modes: '+selectedModes.join(' + ');
+  }
+}
+
+function initSystem(){
+  document.getElementById('setup-btn').disabled=true;
+  document.getElementById('setup-progress').textContent='Initialising hardware…';
+  socket.emit('initialize_system',{modes:selectedModes});
+}
+
+// ─── SOCKET EVENTS ───────────────────────────────────────────────────────
+socket.on('connect',()=>{
+  setPill('pill-conn','Connected','ok');
+});
+
+socket.on('disconnect',()=>{
+  setPill('pill-conn','Disconnected','err');
+});
+
+socket.on('system_state',d=>{
+  setPill('pill-firebase', d.firebase?'Firebase':'Offline', d.firebase?'ok':'err');
+  setPill('pill-camera',   d.camera  ?'Camera'  :'No Cam',  d.camera  ?'ok':'err');
+  systemModes = d.modes||[];
+  document.getElementById('pill-modes').textContent = systemModes.join('+');
+  if(d.ready){
+    document.getElementById('setup-overlay').style.display='none';
+    buildStudentList(d.students||[]);
+    buildSteps(systemModes);
+    updateScanButton(systemModes);
+  }
+});
+
+socket.on('log',d=>{
+  addLog(d.level||'info', d.msg||'');
+});
+
+socket.on('session_status',d=>{
+  updateSessionStatus(d.phase, d.msg, d.student||null);
+});
+
+socket.on('attendance_marked',d=>{
+  document.getElementById('setup-overlay').style.display='none';
+  addAttendanceRow(d);
+  presentCount++;
+  document.getElementById('stat-present').textContent=presentCount;
+});
+
+socket.on('security_alert',d=>{
+  addSecurityAlert(d);
+  alertCount++;
+  document.getElementById('stat-alerts').textContent=alertCount;
+});
+
+socket.on('blocked_event',d=>{
+  addBlockedEvent(d);
+  blockedCount++;
+  document.getElementById('stat-blocked').textContent=blockedCount;
+});
+
+// ─── SETUP PROGRESS LOG ───────────────────────────────────────────────────
+socket.on('log',d=>{
+  const prog=document.getElementById('setup-progress');
+  if(prog) prog.textContent=d.msg||'';
+});
+
+// ─── STATUS UPDATER ───────────────────────────────────────────────────────
+function updateSessionStatus(phase, msg, student){
+  const card = document.getElementById('status-card');
+  card.className='status-card phase-'+phase;
+
+  document.getElementById('status-phase').textContent = phase.replace(/_/g,' ').toUpperCase();
+  document.getElementById('status-msg').textContent   = msg;
+
+  // Student badge
+  const wrap = document.getElementById('student-badge-wrap');
+  if(student){
+    const initials = student.split(' ').map(w=>w[0]).join('').slice(0,2);
+    wrap.innerHTML=`
+      <div class="student-badge">
+        <div class="student-avatar">${initials}</div>
+        <div>
+          <div class="student-name">${student}</div>
+          <div class="student-id">VERIFIED</div>
+        </div>
+      </div>`;
+  } else if(['ready','idle','blocked','security_mismatch'].includes(phase)){
+    wrap.innerHTML='';
+  }
+
+  // Update step indicators
+  updateSteps(phase);
+
+  // Show scan button only for non-RFID modes
+  if(phase==='ready' && !systemModes.includes('RFID')){
+    document.getElementById('btn-scan').disabled=false;
+  }
+}
+
+// ─── STEPS ───────────────────────────────────────────────────────────────
+function buildSteps(modes){
+  const stepData={
+    'RFID'       :['📡','RFID Card'],
+    'FINGERPRINT':['👆','Fingerprint'],
+    'FACE'       :['🎭','Face Recognition'],
+  };
+  const wrap=document.getElementById('steps-wrap');
+  if(!modes||!modes.length){wrap.innerHTML='';return;}
+  wrap.innerHTML=modes.map(m=>`
+    <div class="step pending" id="step-${m}">
+      <span class="step-icon">${stepData[m][0]}</span>
+      <span class="step-label">${stepData[m][1]}</span>
+    </div>`).join('');
+}
+
+function updateSteps(phase){
+  const phaseToMode={
+    rfid_ok:'RFID', fp_ok:'FINGERPRINT', face_ok:'FACE',
+    card_scanned:'RFID',
+  };
+  if(phase==='success'){
+    document.querySelectorAll('.step').forEach(s=>s.className='step done');
+    return;
+  }
+  if(['ready','idle','blocked','security_mismatch','timeout'].includes(phase)){
+    document.querySelectorAll('.step').forEach(s=>s.className='step pending');
+    return;
+  }
+  // Mark done / active
+  const activeMode=phaseToMode[phase];
+  let found=false;
+  document.querySelectorAll('.step').forEach(s=>{
+    const m=s.id.replace('step-','');
+    if(!found){
+      if(m===activeMode){found=true;s.className='step active';}
+      else s.className='step done';
+    } else s.className='step pending';
+  });
+  if(!found && phase==='face_scan'){
+    const fp=document.getElementById('step-FACE');
+    if(fp){fp.className='step active';}
+  }
+}
+
+// ─── SCAN BUTTON ─────────────────────────────────────────────────────────
+function updateScanButton(modes){
+  const btn=document.getElementById('btn-scan');
+  if(!modes.includes('RFID')){
+    btn.style.display='block';
+    btn.disabled=false;
+  } else {
+    btn.style.display='none';
+  }
+}
+
+function startScan(){socket.emit('start_scan');}
+function resetSession(){socket.emit('reset_session');}
+
+// ─── ATTENDANCE TABLE ─────────────────────────────────────────────────────
+function addAttendanceRow(d){
+  rowCount++;
+  const tbody=document.getElementById('attendance-tbody');
+  // Remove placeholder
+  const ph=tbody.querySelector('td[colspan]');
+  if(ph) ph.closest('tr').remove();
+
+  const conf=d.face_conf||0;
+  const confPct=Math.round(conf*100);
+  const modesHtml=(d.modes||[]).map(m=>`<span class="badge badge-cyan">${m}</span>`).join(' ');
+  const tr=document.createElement('tr');
+  tr.className='new-row';
+  tr.innerHTML=`
+    <td style="font-family:'IBM Plex Mono',monospace;color:var(--text3)">${rowCount}</td>
+    <td style="font-family:'IBM Plex Mono',monospace;font-size:12px">${d.time||''}</td>
+    <td><strong style="font-family:'Rajdhani',sans-serif;font-size:15px">${d.student_name||''}</strong></td>
+    <td style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text3)">${(d.student_id||'').slice(-6)}</td>
+    <td>${modesHtml}</td>
+    <td>
+      ${confPct?`<span style="font-family:'IBM Plex Mono',monospace;font-size:12px">${confPct}%</span>
+      <span class="conf-bar"><span class="conf-bar-fill" style="width:${confPct}%"></span></span>`:'—'}
+    </td>
+    <td><span class="badge badge-green">✓ Present</span></td>`;
+  tbody.insertBefore(tr, tbody.firstChild);
+}
+
+// ─── SECURITY ALERTS ─────────────────────────────────────────────────────
+function addSecurityAlert(d){
+  const wrap=document.getElementById('alerts-wrap');
+  const ph=wrap.querySelector('div:not(.alert-card)');
+  if(ph) ph.remove();
+  const el=document.createElement('div');
+  el.className='alert-card';
+  el.innerHTML=`
+    <div class="alert-header">🚨 PROXY DETECTED — ${d.mode||''}</div>
+    <div class="alert-body">
+      <strong>Session:</strong> ${d.session_student||''}<br>
+      <strong>Presented:</strong> ${d.cred_student||''}<br>
+      <strong>Raw ID:</strong> <code style="font-size:11px">${d.raw_id||''}</code>
+    </div>
+    <div class="alert-time">${d.time||''}</div>`;
+  wrap.insertBefore(el,wrap.firstChild);
+}
+
+// ─── BLOCKED EVENTS ───────────────────────────────────────────────────────
+function addBlockedEvent(d){
+  const wrap=document.getElementById('blocked-wrap');
+  const ph=wrap.querySelector('div:not(.blocked-card)');
+  if(ph) ph.remove();
+  const labels={
+    unregistered_rfid :'🚫 Unregistered Card',
+    unregistered_fp   :'🚫 Unregistered FP',
+    face_not_recognised:'❌ Face Unknown',
+  };
+  const el=document.createElement('div');
+  el.className='blocked-card';
+  el.innerHTML=`
+    <div class="blocked-header">${labels[d.reason]||'🚫 Blocked'}</div>
+    <div class="blocked-body">${d.msg||''}</div>
+    <div class="alert-time">${d.time||''}</div>`;
+  wrap.insertBefore(el,wrap.firstChild);
+}
+
+// ─── LOG ─────────────────────────────────────────────────────────────────
+function addLog(level,msg){
+  const panel=document.getElementById('log-panel');
+  const t=new Date().toLocaleTimeString('en-IN',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  const line=document.createElement('div');
+  line.className=`log-line ${level}`;
+  line.innerHTML=`<span class="lt">${t}</span><span class="lm">${escHtml(msg)}</span>`;
+  panel.appendChild(line);
+  panel.scrollTop=panel.scrollHeight;
+  // Also update setup progress
+  const prog=document.getElementById('setup-progress');
+  if(prog) prog.textContent=msg;
+}
+
+// ─── STUDENT LIST ─────────────────────────────────────────────────────────
+function buildStudentList(students){
+  const wrap=document.getElementById('student-list');
+  wrap.innerHTML=students.map(s=>{
+    const initials=s.name.split(' ').map(w=>w[0]).join('').slice(0,2);
+    return `<div style="display:flex;align-items:center;gap:10px;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--bg3)">
+      <div style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--cyan),var(--purple));display:flex;align-items:center;justify-content:center;font-family:'Rajdhani',sans-serif;font-size:13px;font-weight:700;color:#000;flex-shrink:0">${initials}</div>
+      <div>
+        <div style="font-family:'Rajdhani',sans-serif;font-weight:600;font-size:13px">${s.name}</div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text3)">${s.id.slice(-8)}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ─── PILL HELPER ─────────────────────────────────────────────────────────
+function setPill(id,label,cls){
+  const el=document.getElementById(id);
+  if(!el)return;
+  el.className=`pill ${cls}`;
+  el.innerHTML=`<span class="dot"></span>${label}`;
+}
+
+// ─── ESCAPE HTML ─────────────────────────────────────────────────────────
+function escHtml(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
+</body>
+</html>
