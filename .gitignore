@@ -29,3 +29,4 @@ __pycache__/
 # Secrets
 .env
 backend/firebase-credentials.json
+student_faces/
